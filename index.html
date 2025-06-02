@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Field Data Collector</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/css/all.min.css">
+  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 10px;
+      position: relative;
+    }
+    input, select, button, textarea {
+      display: block;
+      margin: 10px 0;
+      width: 100%;
+      padding: 10px;
+      font-size: 1em;
+    }
+    canvas {
+      border: 1px solid #000;
+      margin-top: 10px;
+      touch-action: none;
+    }
+    .btn-group button {
+      width: 48%;
+      display: inline-block;
+    }
+    .location-group {
+      display: flex;
+      gap: 10px;
+    }
+    .location-group input {
+      flex: 1;
+    }
+    .location-group button {
+      width: auto;
+      padding: 10px 15px;
+    }
+    #map {
+      height: 400px;
+      width: 100%;
+      margin: 10px 0;
+    }
+    input:invalid {
+      border-color: #ff4444;
+      box-shadow: 0 0 5px rgba(255, 68, 68, 0.5);
+    }
+    .header-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .header-logo img {
+      height: 40px;
+    }
+    .watermark {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      opacity: 0.1;
+      z-index: -1;
+    }
+    .watermark img {
+      width: 300px;
+      height: auto;
+    }
+    .modal {
+      display: none;
+      position: fixed;
+      z-index: 1000;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      overflow: auto;
+      background-color: rgba(0,0,0,0.4);
+    }
+    .modal-content {
+      background-color: #fefefe;
+      margin: 10% auto;
+      padding: 20px;
+      border: 1px solid #888;
+      width: 90%;
+      max-width: 800px;
+    }
+    .close {
+      color: #aaa;
+      float: right;
+      font-size: 28px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    .close:hover {
+      color: black;
+    }
+    .modal-footer {
+      padding: 15px 0;
+      text-align: right;
+    }
+    .modal-footer button {
+      width: auto;
+      display: inline-block;
+      margin-left: 10px;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    .row {
+      display: flex;
+      flex-wrap: wrap;
+      margin: 0 -10px;
+    }
+    .col {
+      flex: 1;
+      padding: 0 10px;
+    }
+    .col-auto {
+      flex: 0 0 auto;
+      padding: 0 10px;
+    }
+    .loading {
+      text-align: center;
+      padding: 20px;
+      color: #007bff;
+    }
+  </style>
+</head>
+<body>
+  <div class="watermark">
+    <img src="your-logo.png" alt="Company Logo">
+  </div>
+
+  <div class="header-logo">
+    <img src="your-logo.png" alt="Company Logo">
+    <h2>Field Data Collection</h2>
+  </div>
+
+  <form id="dataForm">
+    <input type="text" placeholder="Name" id="name" required pattern=".*" title="Any text is allowed" />
+    <input type="tel" placeholder="Mobile Number" id="mobile" required pattern="[0-9]{10,15}" title="Numbers only (10-15 digits)" />
+    
+    <div class="location-group">
+      <input type="number" placeholder="Latitude" id="latitude" readonly step="0.000001" />
+      <input type="number" placeholder="Longitude" id="longitude" readonly step="0.000001" />
+      <button type="button" onclick="updateLocation()" title="Get Current Location" aria-label="Get Current Location">
+        <i class="fas fa-location-arrow"></i>
+      </button>
+      <button type="button" onclick="showMapModal()" title="Pick from Map" aria-label="Pick Location from Map">
+        <i class="fas fa-map-marked-alt"></i>
+      </button>
+    </div>
+    
+    <input type="text" placeholder="Existing Meter Number" id="meter" pattern="[0-9]*" title="Numbers only" />
+    <input type="text" placeholder="Service Drop Length and Size" id="drop" pattern=".*" title="Any text is allowed" />
+    <input type="text" placeholder="New Service Drop Size" id="newDropSize" pattern=".*" title="Any text is allowed" />
+    <input type="number" placeholder="New Service Drop Length (meters)" id="newDropLength" step="0.01" min="0" />
+    <input type="number" placeholder="Number of Floors" id="floors" min="1" step="1" />
+    <input type="number" placeholder="Number of Units" id="units" min="1" step="1" />
+    <input type="number" placeholder="Total Land Area (sqm)" id="land" step="0.01" min="0" />
+    <input type="text" placeholder="Transformer Number" id="transformer" pattern=".*" title="Any text is allowed" />
+    <input type="number" placeholder="Number of Poles" id="poles" min="0" step="1" />
+
+    <label>Draw Building Structure:</label>
+    <canvas id="drawing" width="300" height="200"></canvas>
+    <button type="button" onclick="clearCanvas()">Clear Drawing</button>
+
+    <div class="btn-group">
+      <button type="button" onclick="saveData()">Save</button>
+      <button type="button" onclick="exportCSV()">Export CSV</button>
+    </div>
+  </form>
+
+  <div id="mapModal" class="modal">
+    <div class="modal-content">
+      <span class="close" onclick="closeMapModal()">×</span>
+      <h2>Select Location</h2>
+      <div id="map" class="loading">Loading map...</div>
+      <div class="form-group">
+        <label>Or enter coordinates manually:</label>
+        <div class="row">
+          <div class="col">
+            <input type="number" id="manualLat" class="form-control" placeholder="Latitude" step="0.000001">
+          </div>
+          <div class="col">
+            <input type="number" id="manualLng" class="form-control" placeholder="Longitude" step="0.000001">
+          </div>
+          <div class="col-auto">
+            <button type="button" class="btn btn-secondary" onclick="setManualLocation()">Set</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" onclick="closeMapModal()">Cancel</button>
+        <button type="button" class="btn btn-primary" onclick="confirmLocation()">Confirm Location</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('service-worker.js').catch(err => console.error('Service Worker registration failed:', err));
+    }
+
+    document.getElementById('dataForm').addEventListener('submit', e => e.preventDefault());
+
+    let map;
+    let marker;
+    let selectedLocation = null;
+    let isMapLoaded = false;
+
+    function showMapModal() {
+      const modal = document.getElementById('mapModal');
+      modal.style.display = 'block';
+      document.getElementById('map').innerHTML = '<div class="loading">Loading map...</div>';
+
+      if (isMapLoaded) {
+        getCurrentLocation();
+      } else {
+        loadGoogleMapsAPI().then(() => {
+          isMapLoaded = true;
+          getCurrentLocation();
+        }).catch(error => {
+          console.error('Error loading Google Maps API:', error);
+          showAlert('Failed to load map. Please check your internet connection or enter coordinates manually.');
+          document.getElementById('map').innerHTML = '<p>Map unavailable. Please enter coordinates manually.</p>';
+        });
+      }
+    }
+
+    function getCurrentLocation() {
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition(
+          pos => {
+            const currentLocation = {
+              lat: pos.coords.latitude,
+              lng: pos.coords.longitude
+            };
+            initMap(currentLocation);
+            selectedLocation = currentLocation;
+            document.getElementById('manualLat').value = currentLocation.lat.toFixed(6);
+            document.getElementById('manualLng').value = currentLocation.lng.toFixed(6);
+          },
+          err => {
+            console.warn('Geolocation error:', err);
+            showAlert('Unable to get current location: ' + err.message + '. Please select a location manually or enter coordinates.');
+            initMap();
+          },
+          { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+        );
+      } else {
+        showAlert('Geolocation is not supported by your browser. Please select a location manually or enter coordinates.');
+        initMap();
+      }
+    }
+
+    function closeMapModal() {
+      document.getElementById('mapModal').style.display = 'none';
+    }
+
+    function loadGoogleMapsAPI() {
+      return new Promise((resolve, reject) => {
+        if (window.google && window.google.maps) {
+          resolve();
+          return;
+        }
+        
+        const script = document.createElement('script');
+        script.src = 'https://maps.googleapis.com/maps/api/js?key=AIzaSyC_3FT_iP8mn3RaLBcEY6slRuwgWH0mTrU';
+        script.async = true;
+        script.defer = true;
+        script.onload = resolve;
+        script.onerror = reject;
+        document.head.appendChild(script);
+      });
+    }
+
+    function initMap(center = { lat: 0, lng: 0 }) {
+      const mapDiv = document.getElementById('map');
+      mapDiv.innerHTML = '';
+      map = new google.maps.Map(mapDiv, {
+        center: center,
+        zoom: 15
+      });
+
+      placeMarker(center);
+
+      google.maps.event.clearInstanceListeners(map);
+      map.addListener('click', (e) => {
+        const location = { lat: e.latLng.lat(), lng: e.latLng.lng() };
+        placeMarker(location);
+        selectedLocation = location;
+        document.getElementById('manualLat').value = location.lat.toFixed(6);
+        document.getElementById('manualLng').value = location.lng.toFixed(6);
+      });
+    }
+
+    function placeMarker(location) {
+      if (marker) {
+        marker.setPosition(location);
+      } else {
+        marker = new google.maps.Marker({
+          position: location,
+          map: map,
+          draggable: true
+        });
+
+        google.maps.event.clearInstanceListeners(marker);
+        marker.addListener('dragend', () => {
+          selectedLocation = { lat: marker.getPosition().lat(), lng: marker.getPosition().lng() };
+          document.getElementById('manualLat').value = selectedLocation.lat.toFixed(6);
+          document.getElementById('manualLng').value = selectedLocation.lng.toFixed(6);
+        });
+      }
+    }
+
+    function setManualLocation() {
+      const lat = parseFloat(document.getElementById('manualLat').value);
+      const lng = parseFloat(document.getElementById('manualLng').value);
+      
+      if (isNaN(lat) || isNaN(lng)) {
+        showAlert('Please enter valid coordinates');
+        return;
+      }
+      
+      const location = { lat, lng };
+      selectedLocation = location;
+      if (map) {
+        placeMarker(location);
+        map.setCenter(location);
+      }
+      document.getElementById('manualLat').value = lat.toFixed(6);
+      document.getElementById('manualLng').value = lng.toFixed(6);
+    }
+
+    function confirmLocation() {
+      if (selectedLocation) {
+        document.getElementById('latitude').value = selectedLocation.lat.toFixed(6);
+        document.getElementById('longitude').value = selectedLocation.lng.toFixed(6);
+        closeMapModal();
+      } else {
+        showAlert('Please select a location on the map or enter coordinates manually.');
+      }
+    }
+
+    function showAlert(message) {
+      const alertModal = document.createElement('div');
+      alertModal.className = 'modal';
+      alertModal.innerHTML = `
+        <div class="modal-content">
+          <span class="close" onclick="this.parentElement.parentElement.style.display='none'">×</span>
+          <p>${message}</p>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-primary" onclick="this.parentElement.parentElement.parentElement.style.display='none'">OK</button>
+          </div>
+        </div>
+      `;
+      document.body.appendChild(alertModal);
+      alertModal.style.display = 'block';
+    }
+
+    function updateLocation() {
+      if (!navigator.geolocation) {
+        showAlert('Geolocation is not supported by your browser.');
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          const location = {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude
+          };
+          document.getElementById('latitude').value = location.lat.toFixed(6);
+          document.getElementById('longitude').value = location.lng.toFixed(6);
+          selectedLocation = location;
+          if (map) {
+            placeMarker(location);
+            map.setCenter(location);
+          }
+        },
+        err => {
+          showAlert('Error getting location: ' + err.message + '. Please allow location access or use the map picker.');
+          console.warn('Geolocation error:', err);
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      );
+    }
+
+    // Initialize form with current location
+    updateLocation();
+
+    const canvas = document.getElementById('drawing');
+    const ctx = canvas.getContext('2d');
+    let drawing = false;
+
+    canvas.addEventListener('mousedown', (e) => {
+      drawing = true;
+      const rect = canvas.getBoundingClientRect();
+      ctx.beginPath();
+      ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top);
+    });
+    canvas.addEventListener('mouseup', () => {
+      drawing = false;
+    });
+    canvas.addEventListener('mouseout', () => {
+      drawing = false;
+    });
+    canvas.addEventListener('mousemove', e => {
+      if (!drawing) return;
+      const rect = canvas.getBoundingClientRect();
+      ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top);
+      ctx.stroke();
+    });
+
+    canvas.addEventListener('touchstart', e => {
+      e.preventDefault();
+      if (e.touches.length > 0) {
+        const rect = canvas.getBoundingClientRect();
+        ctx.beginPath();
+        ctx.moveTo(e.touches[0].clientX - rect.left, e.touches[0].clientY - rect.top);
+        drawing = true;
+      }
+    });
+    canvas.addEventListener('touchmove', e => {
+      e.preventDefault();
+      if (!drawing) return;
+      if (e.touches.length > 0) {
+        const rect = canvas.getBoundingClientRect();
+        ctx.lineTo(e.touches[0].clientX - rect.left, e.touches[0].clientY - rect.top);
+        ctx.stroke();
+      }
+    });
+    canvas.addEventListener('touchend', e => {
+      e.preventDefault();
+      drawing = false;
+    });
+
+    function clearCanvas() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.beginPath();
+    }
+
+    function resetForm() {
+      document.getElementById('dataForm').reset();
+      clearCanvas();
+      updateLocation();
+    }
+
+    function saveData() {
+      const numericFields = ['newDropLength', 'floors', 'units', 'land', 'poles'];
+      for (const fieldId of numericFields) {
+        const value = document.getElementById(fieldId).value;
+        if (value && isNaN(value)) {
+          showAlert(`Please enter a valid number for ${fieldId.replace(/([A-Z])/g, ' $1').trim()}`);
+          return;
+        }
+      }
+
+      const name = document.getElementById('name').value.trim();
+      const mobile = document.getElementById('mobile').value.trim();
+
+      if (!name || !mobile) {
+        showAlert('Please fill in both Name and Mobile Number.');
+        return;
+      }
+
+      const data = {
+        name,
+        mobile,
+        longitude: document.getElementById('longitude').value,
+        latitude: document.getElementById('latitude').value,
+        meter: document.getElementById('meter').value,
+        drop: document.getElementById('drop').value,
+        newDropSize: document.getElementById('newDropSize').value,
+        newDropLength: document.getElementById('newDropLength').value,
+        floors: document.getElementById('floors').value,
+        units: document.getElementById('units').value,
+        land: document.getElementById('land').value,
+        transformer: document.getElementById('transformer').value,
+        poles: document.getElementById('poles').value,
+        drawing: canvas.toDataURL()
+      };
+
+      let records = JSON.parse(localStorage.getItem('fieldRecords') || '[]');
+
+      try {
+        records.push(data);
+        localStorage.setItem('fieldRecords', JSON.stringify(records));
+        showAlert('Data saved to phone!');
+        resetForm();
+      } catch (e) {
+        showAlert('Failed to save data. Storage might be full.');
+        console.error(e);
+      }
+    }
+
+    function exportCSV() {
+      const records = JSON.parse(localStorage.getItem('fieldRecords') || '[]');
+      if (!records.length) return showAlert('No data to export.');
+
+      const header = Object.keys(records[0]).filter(k => k !== 'drawing');
+      const csv = [header.join(',')];
+
+      for (let row of records) {
+        csv.push(header.map(k => `"${(row[k] || '').toString().replace(/"/g, '""')}"`).join(','));
+      }
+
+      const blob = new Blob([csv.join('\n')], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `field_data_${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      showAlert('CSV exported successfully!');
+    }
+  </script>
+</body>
+</html>
